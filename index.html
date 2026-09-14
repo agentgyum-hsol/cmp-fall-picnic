@@ -1,0 +1,1871 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>조선 현상수배: 도망친 박너러를 잡아라!</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+  
+  <!-- Firebase SDK with safe fallback -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background-color: #1a1612;
+      color: #2b2520;
+    }
+    .font-chosun {
+      font-family: 'Gowun Batang', serif;
+    }
+    .hanji-bg {
+      background-color: #f7f2e7;
+      background-image: radial-gradient(#e5dbcb 1.2px, transparent 1.2px);
+      background-size: 16px 16px;
+    }
+    /* 3단계 체포 도장 */
+    .stamp-arrest {
+      border: 5px double #b91c1c;
+      color: #b91c1c;
+      transform: rotate(-10deg);
+      font-weight: 900;
+      letter-spacing: 6px;
+      animation: stampPop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    /* 상단 수평 정자세 임무완수 도장 (기울임 없음) */
+    .stamp-horizontal-complete {
+      border: 5px double #b91c1c;
+      color: #b91c1c;
+      background-color: #fffaf0;
+      font-weight: 900;
+      letter-spacing: 6px;
+      box-shadow: 0 4px 15px rgba(185, 28, 28, 0.2);
+      animation: stampDrop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes stampPop {
+      0% { transform: scale(2.4) rotate(-28deg); opacity: 0; }
+      100% { transform: scale(1) rotate(-10deg); opacity: 1; }
+    }
+    @keyframes stampDrop {
+      0% { transform: scale(1.6); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex justify-center p-0 sm:p-4 selection:bg-amber-800 selection:text-white">
+
+  <!-- 화면 전체 폭죽/컨페티 캔버스 레이어 -->
+  <canvas id="confettiCanvas" class="fixed inset-0 pointer-events-none z-50 w-full h-full"></canvas>
+
+  <!-- 메인 모바일 래퍼 -->
+  <div class="w-full max-w-md hanji-bg min-h-screen shadow-2xl flex flex-col relative overflow-x-hidden border-x-0 sm:border-x-4 border-amber-900/30">
+
+    <!-- 상단 헤더 -->
+    <header class="bg-stone-900 text-amber-100 p-4 border-b-4 border-amber-800 relative z-10">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center space-x-2">
+          <span class="text-xl">📜</span>
+          <div>
+            <h1 class="font-chosun text-lg font-bold tracking-tight text-amber-200">조선 포도청 수사본부</h1>
+            <p class="text-xs text-stone-400">2026 CMP 가을소풍 작전</p>
+          </div>
+        </div>
+        <button id="toggleModeBtn" onclick="openAdminModal()" class="text-xs bg-stone-800 hover:bg-stone-700 active:scale-95 text-amber-400 px-2.5 py-1.5 rounded border border-amber-700/60 transition">
+          운영본부 진입
+        </button>
+      </div>
+
+      <!-- 실시간 통신 상태 바 -->
+      <div class="mt-2.5 flex items-center justify-between text-[11px] text-stone-400 bg-black/40 px-2.5 py-1.5 rounded border border-stone-800">
+        <span class="flex items-center gap-1.5">
+          <span id="syncDot" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="syncStatus">원격 전령망(DB) 실시간 가동 중</span>
+        </span>
+        <span id="roleLabel" class="text-amber-300 font-medium">참가자 모드</span>
+      </div>
+    </header>
+
+    <!-- 긴급 어명 배너 -->
+    <div id="urgentBanner" class="hidden bg-gradient-to-r from-red-700 via-red-600 to-amber-700 text-white px-4 py-2.5 shadow-lg flex items-center justify-between z-20 border-b border-red-900">
+      <div class="flex items-center space-x-2 text-xs font-bold leading-tight">
+        <span class="text-base animate-bounce">🚨</span>
+        <span id="urgentText">어명: 각 추적대는 신속히 임무를 완수하시오!</span>
+      </div>
+      <button onclick="dismissBanner()" class="text-xs bg-black/25 hover:bg-black/40 text-red-100 hover:text-white px-2 py-1 rounded ml-2 whitespace-nowrap transition">
+        확인 후 닫기
+      </button>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- [뷰 1] 추적대원 화면 -->
+    <!-- ============================================== -->
+    <main id="participantView" class="p-4 flex-1 space-y-4">
+
+      <!-- 1. 추적대 선택 탭 -->
+      <section class="bg-amber-100/70 p-3.5 rounded-lg border border-amber-900/20 shadow-sm">
+        <label class="block text-xs font-bold text-amber-950 mb-2">소속 추적대를 선택하시오:</label>
+        <div class="grid grid-cols-5 gap-1.5 text-center text-xs">
+          <button onclick="selectTeam('green')" id="btn-green" class="team-btn py-1.5 rounded font-bold border transition shadow-sm">녹(綠)</button>
+          <button onclick="selectTeam('red')" id="btn-red" class="team-btn py-1.5 rounded font-bold border transition shadow-sm">홍(紅)</button>
+          <button onclick="selectTeam('cyan')" id="btn-cyan" class="team-btn py-1.5 rounded font-bold border transition shadow-sm">벽(碧)</button>
+          <button onclick="selectTeam('yellow')" id="btn-yellow" class="team-btn py-1.5 rounded font-bold border transition shadow-sm">유황(黃)</button>
+          <button onclick="selectTeam('purple')" id="btn-purple" class="team-btn py-1.5 rounded font-bold border transition shadow-sm">자(紫)</button>
+        </div>
+        <div id="teamInfo" class="mt-2.5 text-[12px] text-stone-700 bg-amber-50 p-2.5 rounded border border-amber-200/60 leading-relaxed"></div>
+      </section>
+
+      <!-- ★ [任 務 完 遂] 수평 정자세 대형 도장 (추적대 선택 바로 아래 위치, 스크롤 불필요) ★ -->
+      <section id="allCompleteStampBox" class="hidden text-center py-2">
+        <div class="stamp-horizontal-complete py-3 px-6 rounded-xl inline-block w-full">
+          <div class="text-3xl sm:text-4xl font-chosun font-extrabold tracking-widest text-red-700">
+            任 務 完 遂
+          </div>
+          <div class="text-xs sm:text-sm font-bold tracking-normal text-red-800 mt-0.5">
+            ( 임 무 완 수 )
+          </div>
+        </div>
+      </section>
+
+      <!-- ★ 모든 항목 완료 축하 & 민속촌 자유 관람 배너 카드 ★ -->
+      <section id="allCompleteCard" class="hidden p-4 rounded-xl border-2 border-amber-500 bg-gradient-to-br from-amber-100 via-amber-50 to-orange-100 shadow-xl text-center space-y-2.5 animate-fade-in relative overflow-hidden">
+        <div class="inline-flex items-center justify-center p-2 bg-amber-500 text-white rounded-full shadow-md text-xl animate-bounce">
+          🎉✨
+        </div>
+        <h2 class="font-chosun text-base font-bold text-amber-950 tracking-tight">
+          🏆 축하하오! 모든 임무를 완수하였소!
+        </h2>
+        <p class="text-xs text-amber-900 leading-relaxed font-medium">
+          "이젠 개별로, 조별로 어떤 방식이든 자유롭게 민속촌을 즐겨보세요~ 간식비용 사용 1만원 잊지마세요! 🍡😋"
+        </p>
+        <div class="p-2 rounded-lg bg-white/80 border border-amber-300 text-[11px] font-bold text-red-700 shadow-sm flex items-center justify-center gap-1">
+          <span>💳</span>
+          <span>(삼성카드, 하나카드 결제 필수)</span>
+        </div>
+        <!-- 팡파레 재실행 버튼 -->
+        <button onclick="fireCelebrationConfetti()" class="mt-1 text-[11px] px-3 py-1.5 bg-amber-700 hover:bg-amber-600 active:scale-95 text-white font-bold rounded-full shadow transition inline-flex items-center gap-1">
+          <span>🎊</span> <span>축하 팡파레 다시 터뜨리기!</span>
+        </button>
+      </section>
+
+      <!-- ★ 미션 컨테이너 (완료 시 blur 처리됨) ★ -->
+      <div id="teamMissionsWrapper" class="relative">
+        <div id="teamMissionsInner" class="space-y-4 transition-all duration-300">
+
+          <!-- 상시 미션 카드 -->
+          <section id="missionCard" class="p-3.5 rounded-lg shadow-inner transition-colors duration-300 border border-stone-800 bg-stone-900">
+            <div class="flex justify-between items-center mb-1.5">
+              <span id="missionTitle" class="text-xs font-bold tracking-wider text-amber-400">상시 미션: 우리의 색을 찾아서</span>
+              <span id="missionBadge" class="text-[11px] px-2 py-0.5 rounded bg-red-900/80 text-red-200 font-mono">D-DAY</span>
+            </div>
+            <p id="missionDesc" class="text-xs text-stone-300 mb-2.5 leading-relaxed">우리 조 상징색 사물/배경과 함께 단체 인증샷 2장을 오픈채팅에 투척하라!</p>
+            
+            <div class="flex flex-col gap-2">
+              <div id="missionSubBox" class="text-[11px] bg-stone-800/90 p-2 rounded text-stone-300 flex justify-between items-center">
+                <span id="missionTimeText">최종 마감: <strong class="text-amber-300 font-mono">17:30</strong> (석식 사이드메뉴 결정)</span>
+                <span id="myTeamPhotoStatus" class="font-bold text-amber-400">사진 인증 대기 중</span>
+              </div>
+              <a id="openChatLink" href="https://open.kakao.com/o/g3EaeuMi" target="_blank" rel="noopener noreferrer" 
+                 class="text-center py-1.5 px-3 bg-amber-800 hover:bg-amber-700 text-amber-100 rounded text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
+                <span>💬</span> <span>오픈채팅방 사진 인증하러 가기</span>
+              </a>
+            </div>
+          </section>
+
+          <!-- 제1단계: 보부상 추라이의 밀서 -->
+          <section id="stage1Card" class="bg-white p-4 rounded-lg border-2 border-stone-300 shadow-sm transition-all duration-300">
+            <div class="flex justify-between items-start cursor-pointer" onclick="toggleAccordion(1)">
+              <div>
+                <h2 class="font-chosun text-base font-bold text-stone-900 flex items-center gap-1.5">
+                  <span>제1단계: 보부상 추라이의 밀서</span>
+                  <span id="stage1Chevron" class="text-xs text-stone-400">▼</span>
+                </h2>
+                <p id="stage1Summary" class="text-[11px] text-stone-500 hidden mt-0.5">밀서 확인 완료 (터치하여 상세 보기)</p>
+              </div>
+              <span id="stage1Badge" class="text-xs px-2 py-0.5 rounded font-bold bg-stone-200 text-stone-600">봉인됨</span>
+            </div>
+
+            <div id="stage1Content" class="hidden space-y-2.5 mt-2.5">
+              <div id="stage1FullDetails" class="border-4 border-dashed border-red-950/40 p-3.5 rounded bg-amber-50/50 text-center relative">
+                <div class="text-3xl mb-1">🏃‍♂️</div>
+                <div class="text-xl my-1 font-chosun font-bold text-stone-900">도망자 박너러 (러너박)</div>
+                <p class="text-xs text-stone-600 leading-tight">"CMP 극비 문서를 품고 민속촌으로 줄행랑친 희대의 선비. 거꾸로 뛰어도 러너박이다!"</p>
+              </div>
+
+              <div id="stage1ActionGuide" class="text-[11px] text-amber-900 font-semibold bg-amber-100/80 p-2.5 rounded border border-amber-300 text-center shadow-sm">
+                🎯 행동 요령: 관아 앞 김검거 수사본부로 즉시 이동하라!
+              </div>
+
+              <button id="stage1CompleteBtn" onclick="completeStage1()" class="w-full py-2 bg-amber-800 hover:bg-amber-700 active:scale-95 text-amber-100 text-xs font-bold rounded shadow transition flex items-center justify-center gap-1.5">
+                <span>📜</span> <span>밀서 확인 완료 (관아 수사본부로 이동)</span>
+              </button>
+            </div>
+
+            <div id="stage1Locked" class="text-center py-6 text-stone-400 text-xs">
+              🔒 아직 보부상의 전령이 도착하지 않았소. 본부의 개시를 기다리시오.
+            </div>
+          </section>
+
+          <!-- 제2단계: 관아 수사본부 (김검거) -->
+          <section id="stage2Card" class="bg-white p-4 rounded-lg border-2 border-stone-300 shadow-sm transition-all duration-300">
+            <div class="flex justify-between items-start cursor-pointer" onclick="toggleAccordion(2)">
+              <div>
+                <h2 class="font-chosun text-base font-bold text-stone-900 flex items-center gap-1.5">
+                  <span>제2단계: 관아 수사본부 (김검거)</span>
+                  <span id="stage2Chevron" class="text-xs text-stone-400">▼</span>
+                </h2>
+                <p id="stage2Summary" class="text-[11px] text-stone-500 hidden mt-0.5">호패 수령 완료 (터치하여 지침 다시 보기)</p>
+              </div>
+              <span id="stage2Badge" class="text-xs px-2 py-0.5 rounded font-bold bg-stone-200 text-stone-600">수사본부 미개설</span>
+            </div>
+
+            <div id="stage2Content" class="hidden space-y-2.5 mt-2.5">
+              <div id="stage2OrderBox" class="bg-amber-50 p-3 rounded border border-amber-200 text-xs text-stone-800">
+                <p class="font-bold text-amber-900 mb-1">📢 암행어사 김검거의 령:</p>
+                <p>"관아를 찾아가 김검거 어사와 긴급하고 은밀하게 접선하여 퀴즈를 통과하고 체포 호패를 받아가시오!"</p>
+              </div>
+
+              <div id="badgeStatusBox" class="p-3 rounded text-center border text-xs"></div>
+            </div>
+
+            <div id="stage2Locked" class="text-center py-6 text-stone-400 text-xs">
+              🔒 관아 수사본부가 아직 차려지지 않았소. (1단계 밀서를 확인하고 이동하시오)
+            </div>
+          </section>
+
+          <!-- 제3단계: 도주로 추적 및 체포 -->
+          <section id="stage3Card" class="bg-white p-4 rounded-lg border-2 border-stone-300 shadow-sm transition-all duration-300 relative overflow-hidden">
+            
+            <!-- 체포 도장 레이어 -->
+            <div id="arrestWatermark" class="hidden absolute inset-0 bg-white/85 backdrop-blur-[1px] z-20 flex flex-col items-center justify-center pointer-events-none p-4 text-center">
+              <div class="stamp-arrest text-5xl py-2.5 px-6 rounded-lg font-chosun shadow-lg">
+                檢 擧 (검 거)
+              </div>
+              <p class="text-stone-800 font-bold text-xs mt-3 bg-amber-100 px-3.5 py-1.5 rounded-full border border-amber-300 shadow">
+                🎉 박너러 제압 성공! 비밀 보따리(뽑기)를 회수하시오!
+              </p>
+            </div>
+
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <h2 class="font-chosun text-base font-bold text-stone-900">제3단계: 도주로 추적 및 체포</h2>
+                <p class="text-[11px] text-stone-500">순차적으로 박너러의 실시간 도주 현장 사진과 밀서가 타전됩니다.</p>
+              </div>
+              <span id="stage3Badge" class="text-xs px-2 py-0.5 rounded font-bold bg-stone-200 text-stone-600">추적 잠금</span>
+            </div>
+
+            <div id="stage3Content" class="hidden space-y-3">
+              <div id="hintsListContainer" class="space-y-3"></div>
+
+              <div class="bg-amber-50 border border-amber-300 p-3 rounded text-xs leading-relaxed text-amber-950 mt-2">
+                <p class="font-bold mb-0.5">⚔️ 체포 대결 룰:</p>
+                <p>1. 발견 즉시 호패를 치켜들며 <strong>"러너박 게 섯거라!"</strong>를 외친다.</p>
+                <p>2. 앞 팀이 대결 중일 시 뒤에서 밀행(잠복 대기)!</p>
+                <p>3. <strong>이심전심 포즈 대결</strong> 통과 후 기밀 보따리(종이 뽑기)를 1인 1회 회수한다!</p>
+              </div>
+            </div>
+
+            <div id="stage3Locked" class="text-center py-6 text-stone-400 text-xs">
+              🔒 아직 체포 추적령이 내려지지 않았소. (어사의 시험을 통과하여 추적팀 호패를 획득하시오)
+            </div>
+          </section>
+
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ============================================== -->
+    <!-- [뷰 2] 운영본부 관제탑 -->
+    <!-- ============================================== -->
+    <section id="adminView" class="hidden p-4 flex-1 space-y-4 bg-stone-900 text-stone-200">
+
+      <div class="flex justify-between items-center border-b border-stone-700 pb-2.5">
+        <h2 class="font-chosun text-base font-bold text-amber-400 flex items-center gap-1.5">
+          <span>🎛️</span> 포도청 중앙 관제탑
+        </h2>
+        <button onclick="exitAdminView()" class="text-xs bg-stone-800 hover:bg-stone-700 text-stone-300 px-2.5 py-1 rounded border border-stone-700 transition">
+          대원 화면 복귀
+        </button>
+      </div>
+
+      <!-- 1. 개별 추적대별 원격 단계 제어 -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold text-amber-300">1. 추적대별 단계 개별 타전 (원격 제어)</h3>
+          <span class="text-[10px] text-stone-400">각 조 상황에 맞추어 독립 타전</span>
+        </div>
+        
+        <!-- 전체 일괄 타전 편의 버튼 -->
+        <div class="bg-stone-950/70 p-2 rounded border border-stone-700 flex items-center justify-between gap-1 text-[11px]">
+          <span class="text-stone-400 font-bold">⚡ 전 조 일괄 해금:</span>
+          <div class="flex gap-1">
+            <button onclick="bulkToggleStage(1)" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-amber-200 border border-stone-600 font-bold transition">
+              1단계 전체
+            </button>
+            <button onclick="bulkToggleStage(2)" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-amber-200 border border-stone-600 font-bold transition">
+              2단계 전체
+            </button>
+            <button onclick="bulkToggleStage(3)" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-amber-200 border border-stone-600 font-bold transition">
+              3단계 전체
+            </button>
+          </div>
+        </div>
+
+        <div id="adminTeamStagesControlList" class="space-y-2"></div>
+      </div>
+
+      <!-- 1-2. 추적대원 명단 관리 -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold text-amber-300">1-2. 추적대원 명단 관리</h3>
+          <span class="text-[10px] text-stone-400">추가/삭제 즉시 전체 동기화</span>
+        </div>
+        <div id="adminRosterControlList" class="space-y-2.5"></div>
+      </div>
+
+      <!-- 2. 순차 힌트 & 실시간 사진 제어 -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold text-amber-300">2. 도망자 박너러 4회 순차 힌트 & 현장 사진 타전</h3>
+          <span class="text-[11px] text-stone-400">현장 스마트폰 즉시 촬영 가능</span>
+        </div>
+        
+        <div id="adminHintsControlList" class="space-y-3"></div>
+      </div>
+
+      <!-- 3. 배너 공지 -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-2.5">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold text-red-400">3. 전체 긴급 타전 (배너 공지)</h3>
+          <button onclick="clearUrgentMsg()" class="text-[11px] text-stone-400 hover:text-stone-200 underline">
+            배너 내리기
+          </button>
+        </div>
+        <div class="flex gap-2">
+          <input type="text" id="adminUrgentInput" placeholder="공지할 어명을 입력하시오" 
+                 class="flex-1 bg-stone-900 border border-stone-700 text-xs px-2.5 py-2 rounded text-stone-100 focus:outline-none focus:border-red-600" />
+          <button onclick="broadcastUrgentMsg()" class="bg-red-800 hover:bg-red-700 text-white text-xs px-3.5 py-2 rounded font-bold whitespace-nowrap transition shadow">
+            타전
+          </button>
+        </div>
+        <button onclick="quickBroadcastDDay()" class="w-full py-1.5 text-[11px] bg-stone-700 hover:bg-stone-600 rounded text-amber-200 transition border border-stone-600">
+          ⚡ [원클릭] 16:30 상시미션 마감 임박 어명 타전
+        </button>
+      </div>
+
+      <!-- 4. 5개 추적대 실시간 종합 현황 (원클릭 테스트 버튼 포함) -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-2.5">
+        <h3 class="text-xs font-bold text-amber-300">4. 5개 추적대 실시간 종합 현황</h3>
+        <p class="text-[10px] text-stone-400 leading-tight">체포 버튼을 누르면 해당 조 모바일에 진동·징소리와 함께 [검거] 도장이 즉시 찍힙니다.</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs text-stone-300">
+            <thead class="text-[11px] text-stone-400 border-b border-stone-700">
+              <tr>
+                <th class="py-1.5">추적대</th>
+                <th>1단계(밀서)</th>
+                <th>2단계(호패)</th>
+                <th>3단계(체포)</th>
+                <th>상시인증</th>
+                <th>빠른테스트</th>
+              </tr>
+            </thead>
+            <tbody id="adminTeamStatusTable" class="divide-y divide-stone-700"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 5. 제시어 추첨기 -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-2">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold text-amber-300">5. 이심전심 제시어 추출기</h3>
+          <button onclick="pickRandomKeyword()" class="bg-amber-700 hover:bg-amber-600 active:scale-95 text-amber-100 text-xs px-2.5 py-1 rounded font-bold transition">
+            🎲 제시어 추첨
+          </button>
+        </div>
+        <div class="bg-stone-950 p-3 rounded border border-stone-700 text-center min-h-[56px] flex flex-col justify-center items-center">
+          <span id="keywordCategory" class="text-[10px] text-amber-400 font-bold mb-0.5">-</span>
+          <span id="keywordDisplay" class="text-base font-bold text-white tracking-wide">버튼을 눌러 추첨하시오</span>
+        </div>
+      </div>
+
+      <!-- 6. 비밀 보따리 상품 현황 및 1, 2등 실시간 수령자 관리 (총 34개) -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="text-xs font-bold text-amber-300">6. 비밀 보따리 상품 현황 (총 34개)</h3>
+          <span class="text-[11px] text-stone-400 font-mono">참가자 32명 + 배역 2명</span>
+        </div>
+        
+        <!-- 상품 3종 수량 현황 카드 -->
+        <div class="grid grid-cols-3 gap-2 text-center text-xs">
+          <div class="bg-stone-900 p-2.5 rounded border border-stone-700">
+            <span class="text-amber-300 font-bold block text-[11px]">1등 (선비의 품위)</span>
+            <span class="text-[10px] text-stone-400 block mb-1">신세계 상품권 5만</span>
+            <span class="text-amber-400 font-bold font-mono text-sm">
+              <span id="prize1Count" class="text-white">0</span> / 4명
+            </span>
+          </div>
+          <div class="bg-stone-900 p-2.5 rounded border border-stone-700">
+            <span class="text-orange-300 font-bold block text-[11px]">2등 (선비의 활력)</span>
+            <span class="text-[10px] text-stone-400 block mb-1">배민 상품권 3만</span>
+            <span class="text-orange-400 font-bold font-mono text-sm">
+              <span id="prize2Count" class="text-white">0</span> / 5명
+            </span>
+          </div>
+          <div class="bg-stone-900 p-2.5 rounded border border-stone-700">
+            <span class="text-emerald-300 font-bold block text-[11px]">3등 (선비의 고독)</span>
+            <span class="text-[10px] text-stone-400 block mb-1">스타벅스 1만</span>
+            <span class="text-emerald-400 font-bold font-mono text-sm">25명</span>
+          </div>
+        </div>
+
+        <!-- 1, 2등 수령자 등록 폼 (DB 실시간 연동) -->
+        <div class="bg-stone-950/80 p-3 rounded-lg border border-amber-800/40 space-y-2.5">
+          <div class="flex justify-between items-center">
+            <span class="text-xs font-bold text-amber-200 flex items-center gap-1">
+              <span>✍️</span> 1·2등 수령자 실시간 DB 등록
+            </span>
+            <span class="text-[10px] text-stone-400">등록 즉시 모든 운영진 동기화</span>
+          </div>
+
+          <div class="grid grid-cols-12 gap-1.5 text-xs">
+            <select id="winnerPrizeSelect" class="col-span-4 bg-stone-900 border border-stone-700 rounded px-2 py-1.5 text-stone-200 focus:outline-none focus:border-amber-600">
+              <option value="1">🥇 1등 (5만)</option>
+              <option value="2">🥈 2등 (3만)</option>
+            </select>
+
+            <select id="winnerTeamSelect" onchange="updateWinnerMemberDropdown()" class="col-span-3 bg-stone-900 border border-stone-700 rounded px-1.5 py-1.5 text-stone-200 focus:outline-none focus:border-amber-600">
+              <option value="green">녹(綠)조</option>
+              <option value="red">홍(紅)조</option>
+              <option value="cyan">벽(碧)조</option>
+              <option value="yellow">황(黃)조</option>
+              <option value="purple">자(紫)조</option>
+            </select>
+
+            <select id="winnerMemberSelect" class="col-span-3 bg-stone-900 border border-stone-700 rounded px-1.5 py-1.5 text-stone-100 focus:outline-none focus:border-amber-600">
+              <!-- 조 선택 시 해당 조 대원 목록이 동적으로 채워짐 -->
+            </select>
+
+            <button onclick="registerWinner()" class="col-span-2 bg-amber-700 hover:bg-amber-600 active:scale-95 text-white font-bold rounded py-1.5 transition text-center shadow">
+              등록
+            </button>
+          </div>
+
+          <div id="winnerFormFeedback" class="hidden text-[11px] text-red-400 font-medium"></div>
+
+          <!-- 실시간 1, 2등 수령 명부 리스트 -->
+          <div class="pt-1.5">
+            <div class="text-[11px] text-stone-400 mb-1 flex justify-between">
+              <span>📋 1·2등 수령 대원 명부</span>
+              <span class="text-[10px] text-stone-500">항목 터치 시 삭제 가능</span>
+            </div>
+            <div id="winnersListContainer" class="space-y-1.5 max-h-48 overflow-y-auto pr-1"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <footer class="p-3 bg-stone-950 text-center text-[11px] text-stone-500 border-t border-stone-800">
+      2026 CMP 가을소풍 [현상수배: 도망친 박너러를 잡아라!]
+    </footer>
+  </div>
+
+  <!-- 이미지 확대 모달 (라이트박스) -->
+  <div id="imageLightboxModal" onclick="closeImageLightbox()" class="hidden fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm cursor-pointer">
+    <div class="max-w-md w-full max-h-[85vh] flex flex-col items-center justify-center relative">
+      <img id="lightboxImg" src="" alt="도주 흔적 확대" class="max-w-full max-h-[75vh] object-contain rounded-lg border-2 border-amber-600 shadow-2xl" />
+      <p id="lightboxCaption" class="mt-2.5 text-xs text-amber-200 font-bold text-center bg-black/70 py-1.5 px-4 rounded-full border border-stone-700"></p>
+      <span class="text-[11px] text-stone-400 mt-1">화면 아무 곳이나 누르면 닫힙니다</span>
+    </div>
+  </div>
+
+  <!-- 운영본부 암호 모달 -->
+  <div id="passwordModal" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div class="bg-stone-900 border-2 border-amber-800 rounded-lg max-w-xs w-full p-4 shadow-2xl space-y-3">
+      <h3 class="font-chosun text-base font-bold text-amber-300 text-center">운영본부 암구호 확인</h3>
+      <input type="password" id="adminPasswordInput" placeholder="암구호를 입력하시오" 
+             onkeydown="handlePasswordKey(event)"
+             class="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 text-center focus:outline-none focus:border-amber-600" />
+      <div id="passwordFeedback" class="hidden text-xs text-red-400 text-center font-bold">암구호가 일치하지 않소!</div>
+      <div class="flex gap-2">
+        <button onclick="closeAdminModal()" class="flex-1 py-1.5 text-xs bg-stone-800 text-stone-400 rounded hover:bg-stone-700">취소</button>
+        <button onclick="verifyAdminPassword()" class="flex-1 py-1.5 text-xs bg-amber-800 hover:bg-amber-700 text-white font-bold rounded">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- 자바스크립트 로직부 -->
+  <!-- ============================================== -->
+  <script>
+    // 1. 보안 암구호 검증 (2026XCA 바이트 마스킹 대조)
+    const AUTH_CIPHER = [24, 26, 24, 28, 114, 105, 107];
+    const CIPHER_KEY = 42;
+
+    function checkPasscodeAuth(inputStr) {
+      if (!inputStr) return false;
+      const clean = inputStr.trim().toUpperCase();
+      if (clean.length !== AUTH_CIPHER.length) return false;
+      return AUTH_CIPHER.every((val, idx) => (clean.charCodeAt(idx) ^ CIPHER_KEY) === val);
+    }
+
+    // 4회 순차 도주 흔적 기본값 정의
+    const defaultHintsData = {
+      1: { id: 1, time: "1차", title: "1차 도주 흔적", text: "어디한번 잡아볼테면 잡아보거라!", open: false, photo: null },
+      2: { id: 2, time: "2차", title: "2차 도주 흔적", text: "어허 지루하구나 아직도 나를 찾지 못하다니~", open: false, photo: null },
+      3: { id: 3, time: "3차", title: "3차 도주 흔적", text: "아이고 이제 도망치기도 귀찮구나! 여기 누워 잠이나 자야겠다.", open: false, photo: null },
+      4: { id: 4, time: "4차", title: "4차 도주 흔적", text: "끝끝내 잡지못하느냐! 할 수 있다.!", open: false, photo: null }
+    };
+
+    // Firebase 설정
+    const firebaseConfig = {
+      apiKey: "AIzaSyC23iYxBMa_5ifjk0GyOMYgoYwv56xCA0M",
+      authDomain: "h2cmpfallpicnic.firebaseapp.com",
+      databaseURL: "https://h2cmpfallpicnic-default-rtdb.firebaseio.com",
+      projectId: "h2cmpfallpicnic",
+      storageBucket: "h2cmpfallpicnic.firebasestorage.app",
+      messagingSenderId: "160795296623",
+      appId: "1:160795296623:web:6cb81ac0751702ae399e9a",
+      measurementId: "G-JC1B4F6WHS"
+    };
+
+    let db = null;
+    let isFirebaseActive = false;
+
+    try {
+      if (typeof firebase !== "undefined" && firebase.initializeApp) {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.database();
+        isFirebaseActive = true;
+      }
+    } catch (e) {
+      console.warn("Firebase 초기화 에러 (로컬 모드로 전환):", e);
+      isFirebaseActive = false;
+    }
+
+    // 각 팀별 고유 색상 코드 (오간색)
+    const teamColorCodes = {
+      green:  "#1D7A46", // 녹(綠)
+      red:    "#D9383A", // 홍(紅)
+      cyan:   "#2A83A2", // 벽(碧)
+      yellow: "#C2A438", // 유황(黃)
+      purple: "#5A2D58"  // 자(紫)
+    };
+
+    const teamMembers = {
+      green: { name: "녹(綠) 추적대", color: "Green (#1D7A46)", members: "임학재, 황효진, 이진용, 허진, 이은경, 구아란, 이지원 (7인)" },
+      red: { name: "홍(紅) 추적대", color: "Red (#D9383A)", members: "한재용, 구동욱, 남현식, 이이솜, 이현재, 전상구 (6인)" },
+      cyan: { name: "벽(碧) 추적대", color: "Deep Cyan (#2A83A2)", members: "손병관, 오송현, 이정범, 황라임, 이경민, 김준석, 김나혜 (7인)" },
+      yellow: { name: "유황(黃) 추적대", color: "Yellow (#C2A438)", members: "김익주, 박현준, 황진영, 김동환, 권찬숙, 윤선욱 (6인)" },
+      purple: { name: "자(紫) 추적대", color: "Purple (#5A2D58)", members: "박종철, 천고은, 정재찬, 박준범, 하샛별, 박지훈 (6인)" }
+    };
+
+    // 각 추적대별 대원 명단
+    const teamRoster = {
+      green: ["임학재", "황효진", "이진용", "허진", "이은경", "구아란", "이지원"],
+      red: ["한재용", "구동욱", "남현식", "이이솜", "이현재", "전상구"],
+      cyan: ["손병관", "오송현", "이정범", "황라임", "이경민", "김준석", "김나혜"],
+      yellow: ["김익주", "박현준", "황진영", "김동환", "권찬숙", "윤선욱"],
+      purple: ["박종철", "천고은", "정재찬", "박준범", "하샛별", "박지훈"]
+    };
+
+    const keywords = [
+      { cat: "전통 관련", word: "현상수배" }, { cat: "전통 관련", word: "도망자" },
+      { cat: "전통 관련", word: "암행어사" }, { cat: "전통 관련", word: "포도대장" },
+      { cat: "전통 관련", word: "곤장" },     { cat: "전통 관련", word: "약과" },
+      { cat: "전통 관련", word: "활쏘기" },   { cat: "전통 관련", word: "사약 (배은망덕)" },
+      { cat: "업무 관련", word: "CMP" },      { cat: "업무 관련", word: "슬러리" },
+      { cat: "업무 관련", word: "설비 알람" }, { cat: "업무 관련", word: "GY" },
+      { cat: "업무 관련", word: "칼퇴" },     { cat: "업무 관련", word: "월급날" },
+      { cat: "업무 관련", word: "보고서" },   { cat: "업무 관련", word: "출근" },
+      { cat: "동작 관련", word: "야구" },     { cat: "동작 관련", word: "축구" },
+      { cat: "동작 관련", word: "하트" },     { cat: "동작 관련", word: "달리기" },
+      { cat: "동작 관련", word: "보디빌더" }, { cat: "동작 관련", word: "사진 촬영" },
+      { cat: "동작 관련", word: "복싱" },
+      { cat: "상황 관련", word: "좀비" },     { cat: "상황 관련", word: "귀신" },
+      { cat: "상황 관련", word: "로또 1등" }, { cat: "상황 관련", word: "모델" },
+      { cat: "상황 관련", word: "화장실 급할 때" }, { cat: "상황 관련", word: "외계인" },
+      { cat: "상황 관련", word: "가을" }
+    ];
+
+    // 게임 전역 상태 객체
+    let gameState = {
+      stages: { 1: false, 2: false, 3: false },
+      hints: JSON.parse(JSON.stringify(defaultHintsData)),
+      urgent: { active: false, text: "", timestamp: 0 },
+      teams: {
+        green:  { stage1: false, badge: false, arrested: false, photo: false, stage1_open: false, stage2_open: false, stage3_open: false },
+        red:    { stage1: false, badge: false, arrested: false, photo: false, stage1_open: false, stage2_open: false, stage3_open: false },
+        cyan:   { stage1: false, badge: false, arrested: false, photo: false, stage1_open: false, stage2_open: false, stage3_open: false },
+        yellow: { stage1: false, badge: false, arrested: false, photo: false, stage1_open: false, stage2_open: false, stage3_open: false },
+        purple: { stage1: false, badge: false, arrested: false, photo: false, stage1_open: false, stage2_open: false, stage3_open: false }
+      },
+      winners: [],
+      roster: JSON.parse(JSON.stringify(teamRoster))
+    };
+
+    let userAccordionOverride = { 1: null, 2: null };
+    let currentTeamKey = localStorage.getItem("myTeamKey") || "green";
+    let lastArrestState = false;
+    let hasTriggeredAllCompleteConfetti = false;
+
+    // ==========================================
+    // 2-1. 조선 오색 컨페티 & 폭죽 시스템
+    // ==========================================
+    let confettiAnimationId = null;
+    let confettiParticles = [];
+    const confettiColors = ["#D9383A", "#1D7A46", "#2A83A2", "#C2A438", "#5A2D58", "#F59E0B", "#EC4899", "#FFFFFF"];
+
+    function initConfettiCanvas() {
+      const canvas = document.getElementById("confettiCanvas");
+      if (!canvas) return;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      window.addEventListener("resize", () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      });
+    }
+
+    function fireCelebrationConfetti() {
+      const canvas = document.getElementById("confettiCanvas");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      
+      const count = 150;
+      confettiParticles = [];
+
+      for (let i = 0; i < count; i++) {
+        const isLeft = Math.random() < 0.5;
+        const originX = isLeft ? canvas.width * 0.15 : canvas.width * 0.85;
+        const originY = canvas.height * 0.82;
+        const angle = isLeft ? (-Math.PI / 2 + (Math.random() * 0.8 - 0.1)) : (-Math.PI / 2 - (Math.random() * 0.8 - 0.1));
+        const speed = 12 + Math.random() * 16;
+
+        confettiParticles.push({
+          x: originX,
+          y: originY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+          w: 8 + Math.random() * 7,
+          h: 12 + Math.random() * 9,
+          tilt: Math.random() * 10,
+          tiltAngle: Math.random() * Math.PI,
+          tiltAngleInc: 0.06 + Math.random() * 0.08,
+          gravity: 0.38 + Math.random() * 0.18,
+          drag: 0.965,
+          opacity: 1,
+          rot: Math.random() * 360,
+          rotSpeed: (Math.random() - 0.5) * 8
+        });
+      }
+
+      if (confettiAnimationId) cancelAnimationFrame(confettiAnimationId);
+
+      function updateConfetti() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        let activeCount = 0;
+
+        confettiParticles.forEach(p => {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vx *= p.drag;
+          p.vy += p.gravity;
+          p.tiltAngle += p.tiltAngleInc;
+          p.tilt = Math.sin(p.tiltAngle) * 15;
+          p.rot += p.rotSpeed;
+
+          if (p.y > canvas.height * 0.7) {
+            p.opacity -= 0.015;
+          }
+
+          if (p.opacity > 0 && p.y < canvas.height + 40) {
+            activeCount++;
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, p.opacity);
+            ctx.translate(p.x, p.y);
+            ctx.rotate((p.rot * Math.PI) / 180);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h + p.tilt);
+            ctx.restore();
+          }
+        });
+
+        if (activeCount > 0) {
+          confettiAnimationId = requestAnimationFrame(updateConfetti);
+        } else {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      }
+
+      updateConfetti();
+    }
+
+    // ==========================================
+    // 2-2. 효과음 & 햅틱(진동) 시스템
+    // ==========================================
+    function triggerArrestFeedback() {
+      if ("vibrate" in navigator) {
+        try {
+          navigator.vibrate([150, 80, 200, 100, 400]);
+        } catch (e) {}
+      }
+
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        const ctx = new AudioContext();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(160, now);
+        osc.frequency.exponentialRampToValueAtTime(35, now + 1.2);
+
+        gain.gain.setValueAtTime(0.7, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 1.2);
+      } catch (e) {}
+    }
+
+    function checkArrestTrigger(newData) {
+      if (!newData || !newData.teams || !newData.teams[currentTeamKey]) return;
+      const curArrest = !!newData.teams[currentTeamKey].arrested;
+      if (!lastArrestState && curArrest) {
+        triggerArrestFeedback();
+      }
+      lastArrestState = curArrest;
+    }
+
+    // ==========================================
+    // 3. 데이터 보정 및 실시간 동기화
+    // ==========================================
+    function normalizeGameState(data) {
+      if (!data || typeof data !== "object") return;
+      
+      if (!data.stages) data.stages = { 1: false, 2: false, 3: false };
+      
+      if (!data.hints || typeof data.hints !== "object") {
+        data.hints = JSON.parse(JSON.stringify(defaultHintsData));
+      } else {
+        [1, 2, 3, 4].forEach(id => {
+          if (!data.hints[id] || typeof data.hints[id] !== "object") {
+            const wasOpen = !!(data.hints[id]);
+            data.hints[id] = Object.assign({}, defaultHintsData[id], { open: wasOpen });
+          } else {
+            data.hints[id] = Object.assign({}, defaultHintsData[id], data.hints[id]);
+          }
+        });
+      }
+
+      const defaultTeamState = {
+        stage1: false, badge: false, arrested: false, photo: false,
+        stage1_open: false, stage2_open: false, stage3_open: false
+      };
+
+      if (!data.teams) {
+        data.teams = {
+          green:  { ...defaultTeamState },
+          red:    { ...defaultTeamState },
+          cyan:   { ...defaultTeamState },
+          yellow: { ...defaultTeamState },
+          purple: { ...defaultTeamState }
+        };
+      } else {
+        ["green", "red", "cyan", "yellow", "purple"].forEach(k => {
+          if (!data.teams[k]) data.teams[k] = { ...defaultTeamState };
+          if (typeof data.teams[k].stage1 === "undefined") data.teams[k].stage1 = false;
+          if (typeof data.teams[k].badge === "undefined") data.teams[k].badge = false;
+          if (typeof data.teams[k].arrested === "undefined") data.teams[k].arrested = false;
+          if (typeof data.teams[k].photo === "undefined") data.teams[k].photo = false;
+          if (typeof data.teams[k].stage1_open === "undefined") data.teams[k].stage1_open = false;
+          if (typeof data.teams[k].stage2_open === "undefined") data.teams[k].stage2_open = false;
+          if (typeof data.teams[k].stage3_open === "undefined") data.teams[k].stage3_open = false;
+        });
+      }
+
+      if (!data.urgent) data.urgent = { active: false, text: "", timestamp: 0 };
+      if (!Array.isArray(data.winners)) data.winners = [];
+
+      if (!data.roster || typeof data.roster !== "object") {
+        data.roster = JSON.parse(JSON.stringify(teamRoster));
+      } else {
+        Object.keys(teamRoster).forEach(k => {
+          if (!Array.isArray(data.roster[k])) data.roster[k] = [...teamRoster[k]];
+        });
+      }
+    }
+
+    // 팀 대원 명단은 관제탑에서 수정 가능 — gameState.roster를 우선 사용
+    function getRoster(teamKey) {
+      if (gameState.roster && Array.isArray(gameState.roster[teamKey])) return gameState.roster[teamKey];
+      return teamRoster[teamKey] || [];
+    }
+
+    function getTeamMembersText(teamKey) {
+      const roster = getRoster(teamKey);
+      return roster.length ? `${roster.join(", ")} (${roster.length}인)` : "등록된 대원 없음";
+    }
+
+    function initSync() {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("admin") === "true") {
+        setTimeout(() => openAdminModal(), 300);
+      }
+
+      if (isFirebaseActive && db) {
+        db.ref("cmp_mission").on("value", (snapshot) => {
+          const val = snapshot.val();
+          if (val) {
+            normalizeGameState(val);
+            checkArrestTrigger(val);
+            gameState = val;
+            renderAll();
+          } else {
+            db.ref("cmp_mission").set(gameState).catch(err => {
+              console.warn("DB Set Error:", err);
+            });
+          }
+        }, (error) => {
+          console.warn("Firebase Read Error:", error);
+          loadLocalFallback();
+        });
+        document.getElementById("syncStatus").innerText = "Firebase 실시간 통신 연결됨";
+      } else {
+        loadLocalFallback();
+      }
+    }
+
+    function loadLocalFallback() {
+      const local = localStorage.getItem("cmp_gamestate_fallback");
+      if (local) {
+        try {
+          const parsed = JSON.parse(local);
+          normalizeGameState(parsed);
+          gameState = parsed;
+          checkArrestTrigger(gameState);
+        } catch(e) {
+          console.warn("Local storage parse error:", e);
+        }
+      }
+      document.getElementById("syncStatus").innerText = "로컬 모드 (브라우저 내 구동)";
+      renderAll();
+
+      window.addEventListener("storage", (e) => {
+        if (e.key === "cmp_gamestate_fallback" && e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            normalizeGameState(parsed);
+            checkArrestTrigger(parsed);
+            gameState = parsed;
+            renderAll();
+          } catch(err) {}
+        }
+      });
+    }
+
+    function saveState() {
+      if (isFirebaseActive && db) {
+        db.ref("cmp_mission").set(gameState).catch(e => {
+          console.warn("Firebase save error:", e);
+        });
+      } else {
+        localStorage.setItem("cmp_gamestate_fallback", JSON.stringify(gameState));
+        renderAll();
+      }
+    }
+
+    function renderAll() {
+      renderParticipantView();
+      renderAdminView();
+      renderUrgentBanner();
+    }
+
+    // ==========================================
+    // 4. 참가자 화면 렌더링 로직 (완료 도장 및 블러 연동)
+    // ==========================================
+    function renderParticipantView() {
+      // 1) 팀 선택 버튼 스타일링
+      Object.keys(teamColorCodes).forEach(key => {
+        const btn = document.getElementById("btn-" + key);
+        if (!btn) return;
+        const col = teamColorCodes[key];
+        
+        if (key === currentTeamKey) {
+          btn.style.backgroundColor = col;
+          btn.style.color = "#ffffff";
+          btn.style.borderColor = col;
+          btn.classList.add("ring-2", "ring-offset-1", "ring-amber-900");
+        } else {
+          btn.style.backgroundColor = "transparent";
+          btn.style.color = col;
+          btn.style.borderColor = col;
+          btn.classList.remove("ring-2", "ring-offset-1", "ring-amber-900");
+        }
+      });
+
+      const t = teamMembers[currentTeamKey];
+      if (t) {
+        document.getElementById("teamInfo").innerHTML = `
+          <strong>${t.name}</strong> <br/>
+          <span class="text-stone-600">대원: ${getTeamMembersText(currentTeamKey)}</span>
+        `;
+      }
+
+      // 2) 상시 미션 카드
+      const myTeam = gameState.teams[currentTeamKey] || { 
+        stage1: false, badge: false, arrested: false, photo: false,
+        stage1_open: false, stage2_open: false, stage3_open: false
+      };
+      const myPhoto = !!myTeam.photo;
+      const photoEl = document.getElementById("myTeamPhotoStatus");
+      const missionCard = document.getElementById("missionCard");
+      const missionTitle = document.getElementById("missionTitle");
+      const missionDesc = document.getElementById("missionDesc");
+      const missionSubBox = document.getElementById("missionSubBox");
+      const missionBadge = document.getElementById("missionBadge");
+
+      if (myPhoto) {
+        missionCard.style.backgroundColor = teamColorCodes[currentTeamKey];
+        missionCard.style.borderColor = "transparent";
+        missionTitle.className = "text-xs font-bold tracking-wider text-white";
+        missionDesc.className = "text-xs text-white/90 mb-2 leading-relaxed";
+        missionBadge.className = "text-[11px] px-2 py-0.5 rounded bg-black/30 text-white font-mono";
+        missionSubBox.className = "text-[11px] bg-black/25 p-2 rounded text-white flex justify-between items-center";
+        photoEl.innerText = "✓ 인증 완료 (사이드메뉴 획득!)";
+        photoEl.className = "font-bold text-amber-200";
+      } else {
+        missionCard.style.backgroundColor = "#1c1917";
+        missionCard.style.borderColor = "#451a03";
+        missionTitle.className = "text-xs font-bold tracking-wider text-amber-400";
+        missionDesc.className = "text-xs text-stone-300 mb-2 leading-relaxed";
+        missionBadge.className = "text-[11px] px-2 py-0.5 rounded bg-red-900/80 text-red-200 font-mono";
+        missionSubBox.className = "text-[11px] bg-stone-800/90 p-2 rounded text-stone-300 flex justify-between items-center";
+        photoEl.innerText = "사진 인증 대기 중";
+        photoEl.className = "font-bold text-amber-400";
+      }
+
+      // 3) 1단계 카드
+      const isStage1Open = !!myTeam.stage1_open;
+      const isStage1Done = !!myTeam.stage1;
+      
+      const s1Card = document.getElementById("stage1Card");
+      const s1Content = document.getElementById("stage1Content");
+      const s1Locked = document.getElementById("stage1Locked");
+      const s1Badge = document.getElementById("stage1Badge");
+      const s1Chevron = document.getElementById("stage1Chevron");
+      const s1Summary = document.getElementById("stage1Summary");
+      const s1Btn = document.getElementById("stage1CompleteBtn");
+      const s1FullDetails = document.getElementById("stage1FullDetails");
+      const s1ActionGuide = document.getElementById("stage1ActionGuide");
+
+      if (isStage1Open) {
+        s1Locked.classList.add("hidden");
+        s1Content.classList.remove("hidden");
+        
+        if (isStage1Done) {
+          s1Badge.innerText = "✅ 임무 완수";
+          s1Badge.className = "text-xs px-2 py-0.5 rounded font-bold bg-emerald-700 text-white";
+          s1Card.className = "bg-emerald-50/40 p-4 rounded-lg border-2 border-emerald-500/80 shadow-sm transition-all duration-300";
+          s1Summary.classList.remove("hidden");
+          s1Btn.classList.add("hidden");
+
+          const shouldShowFull = (userAccordionOverride[1] === true);
+          if (shouldShowFull) {
+            s1FullDetails.classList.remove("hidden");
+            s1Chevron.innerText = "▲";
+            s1Summary.innerText = "밀서 확인 완료 (터치하여 본문 접기)";
+          } else {
+            s1FullDetails.classList.add("hidden");
+            s1Chevron.innerText = "▼";
+            s1Summary.innerText = "밀서 확인 완료 (터치하여 상세 보기)";
+          }
+          s1ActionGuide.classList.remove("hidden");
+        } else {
+          s1Badge.innerText = "수배령 선포";
+          s1Badge.className = "text-xs px-2 py-0.5 rounded font-bold bg-red-700 text-white";
+          s1Card.className = "bg-white p-4 rounded-lg border-2 border-amber-600 shadow-sm transition-all duration-300";
+          s1Summary.classList.add("hidden");
+          s1Btn.classList.remove("hidden");
+          s1FullDetails.classList.remove("hidden");
+          s1ActionGuide.classList.remove("hidden");
+
+          const shouldCollapse = (userAccordionOverride[1] === false);
+          if (shouldCollapse) {
+            s1Content.classList.add("hidden");
+            s1Chevron.innerText = "▼";
+          } else {
+            s1Content.classList.remove("hidden");
+            s1Chevron.innerText = "▲";
+          }
+        }
+      } else {
+        s1Content.classList.add("hidden");
+        s1Locked.classList.remove("hidden");
+        s1Summary.classList.add("hidden");
+        s1Badge.innerText = "봉인됨";
+        s1Badge.className = "text-xs px-2 py-0.5 rounded font-bold bg-stone-200 text-stone-600";
+        s1Card.className = "bg-white p-4 rounded-lg border-2 border-stone-300 shadow-sm transition-all duration-300";
+        s1Chevron.innerText = "▼";
+      }
+
+      // 4) 2단계 카드
+      const isStage2Open = !!myTeam.stage2_open;
+      const isStage2Done = !!myTeam.badge;
+
+      const s2Card = document.getElementById("stage2Card");
+      const s2Content = document.getElementById("stage2Content");
+      const s2Locked = document.getElementById("stage2Locked");
+      const s2Badge = document.getElementById("stage2Badge");
+      const s2Chevron = document.getElementById("stage2Chevron");
+      const s2Summary = document.getElementById("stage2Summary");
+      const s2OrderBox = document.getElementById("stage2OrderBox");
+      const badgeBox = document.getElementById("badgeStatusBox");
+
+      if (isStage2Open) {
+        s2Locked.classList.add("hidden");
+        s2Content.classList.remove("hidden");
+
+        if (isStage2Done) {
+          s2Badge.innerText = "✅ 호패 획득 완료";
+          s2Badge.className = "text-xs px-2 py-0.5 rounded font-bold bg-emerald-700 text-white";
+          s2Card.className = "bg-emerald-50/40 p-4 rounded-lg border-2 border-emerald-500/80 shadow-sm transition-all duration-300";
+          s2Summary.classList.remove("hidden");
+          
+          badgeBox.className = "p-3 rounded text-center border-2 border-emerald-600 bg-emerald-50 text-emerald-900 font-bold shadow-sm";
+          badgeBox.innerHTML = "🎖️ [수사관 호패 수령 완료] 관제탑의 체포 추적령을 기다리시오!";
+
+          const shouldShowOrder = (userAccordionOverride[2] === true);
+          if (shouldShowOrder) {
+            s2OrderBox.classList.remove("hidden");
+            s2Chevron.innerText = "▲";
+            s2Summary.innerText = "호패 수령 완료 (터치하여 지침 접기)";
+          } else {
+            s2OrderBox.classList.add("hidden");
+            s2Chevron.innerText = "▼";
+            s2Summary.innerText = "호패 수령 완료 (터치하여 지침 다시 보기)";
+          }
+        } else {
+          s2Badge.innerText = "수사본부 개설";
+          s2Badge.className = "text-xs px-2 py-0.5 rounded font-bold bg-amber-800 text-amber-100";
+          s2Card.className = "bg-white p-4 rounded-lg border-2 border-amber-500 shadow-sm transition-all duration-300";
+          s2Summary.classList.add("hidden");
+          s2OrderBox.classList.remove("hidden");
+
+          badgeBox.className = "p-3 rounded text-center border border-amber-300 bg-amber-50/60 text-amber-950";
+          badgeBox.innerHTML = "⏳ 관아 수사본부에서 김검거 어사의 퀴즈 통과 후 호패를 수령하시오.";
+
+          const shouldCollapse = (userAccordionOverride[2] === false);
+          if (shouldCollapse) {
+            s2Content.classList.add("hidden");
+            s2Chevron.innerText = "▼";
+          } else {
+            s2Content.classList.remove("hidden");
+            s2Chevron.innerText = "▲";
+          }
+        }
+      } else {
+        s2Content.classList.add("hidden");
+        s2Locked.classList.remove("hidden");
+        s2Summary.classList.add("hidden");
+        s2Badge.innerText = "수사본부 미개설";
+        s2Badge.className = "text-xs px-2 py-0.5 rounded font-bold bg-stone-200 text-stone-600";
+        s2Card.className = "bg-white p-4 rounded-lg border-2 border-stone-300 shadow-sm transition-all duration-300";
+        s2Chevron.innerText = "▼";
+      }
+
+      // 5) 3단계 카드 & 검거 도장
+      const s3 = !!myTeam.stage3_open;
+      toggleCard("stage3Card", "stage3Content", "stage3Locked", "stage3Badge", s3, "체포 작전 개시", "bg-emerald-700 text-white");
+
+      const isArrested = !!myTeam.arrested;
+      const watermark = document.getElementById("arrestWatermark");
+      if (isArrested && s3) {
+        watermark.classList.remove("hidden");
+      } else {
+        watermark.classList.add("hidden");
+      }
+
+      // 6) ★ 모든 항목 완수 여부 종합 판별 ★
+      const isAllDone = isStage1Done && isStage2Done && isArrested && myPhoto;
+
+      const allCompleteStampBox = document.getElementById("allCompleteStampBox");
+      const allCompleteCard = document.getElementById("allCompleteCard");
+      const teamMissionsInner = document.getElementById("teamMissionsInner");
+
+      if (isAllDone) {
+        // 모든 미션 완료 시: 추적대 선택 바로 아래에 수평 정자세 도장 박스 및 축하 카드 표시, 미션 목록 블러 처리
+        if (allCompleteStampBox) allCompleteStampBox.classList.remove("hidden");
+        if (allCompleteCard) allCompleteCard.classList.remove("hidden");
+        if (teamMissionsInner) {
+          teamMissionsInner.classList.add("blur-[3px]", "opacity-40", "pointer-events-none");
+        }
+
+        // 최초 완수 달성 시 축하 컨페티 팡파레 1회 자동 발사
+        if (!hasTriggeredAllCompleteConfetti) {
+          hasTriggeredAllCompleteConfetti = true;
+          setTimeout(() => {
+            fireCelebrationConfetti();
+          }, 300);
+        }
+      } else {
+        // 미완료 상태: 도장 박스 숨김, 축하 카드 숨김, 블러 제거
+        if (allCompleteStampBox) allCompleteStampBox.classList.add("hidden");
+        if (allCompleteCard) allCompleteCard.classList.add("hidden");
+        if (teamMissionsInner) {
+          teamMissionsInner.classList.remove("blur-[3px]", "opacity-40", "pointer-events-none");
+        }
+        hasTriggeredAllCompleteConfetti = false;
+      }
+
+      // 7) 4회 순차 도주 힌트 렌더링
+      const hints = gameState.hints;
+      const openedIds = [1, 2, 3, 4].filter(id => hints[id] && hints[id].open);
+      const latestOpenId = openedIds.length > 0 ? Math.max(...openedIds) : 0;
+
+      const hintsContainer = document.getElementById("hintsListContainer");
+      
+      if (openedIds.length === 0) {
+        hintsContainer.innerHTML = `
+          <div class="border-2 border-dashed border-amber-800/30 p-4 rounded-lg bg-amber-50/50 text-center text-xs text-amber-950">
+            <span class="text-2xl block mb-1">👣</span>
+            <strong>아직 박너러의 첫 번째 도주 흔적이 도착하지 않았소!</strong>
+            <p class="text-[11px] text-stone-500 mt-1">곧 제1차 도주 흔적이 타전될 예정이니 대기하시오.</p>
+          </div>
+        `;
+      } else {
+        let html = "";
+        
+        [1, 2, 3, 4].forEach(id => {
+          const h = hints[id];
+          if (!h.open) {
+            if (id === latestOpenId + 1) {
+              html += `
+                <div class="border border-stone-300 rounded-lg p-3 bg-stone-100/70 text-center">
+                  <span class="text-xs text-stone-500 font-bold">⏳ 제${id}차 도주 흔적 전령 대기 중...(약 15분 내)</span>
+                </div>
+              `;
+            }
+            return;
+          }
+
+          const isLatest = (id === latestOpenId);
+          
+          if (isLatest) {
+            html += `
+              <div class="border-2 rounded-lg p-3.5 bg-amber-50/90 border-red-500 shadow-md relative overflow-hidden transition-all">
+                <div class="flex justify-between items-center text-xs font-bold mb-1.5">
+                  <span class="text-red-900 flex items-center gap-1 font-chosun text-sm">
+                    <span>📍</span> ${h.title} 
+                  </span>
+                  <span class="text-[10px] bg-red-600 text-white font-bold px-2 py-0.5 rounded-full animate-pulse">현재 최신 위치!</span>
+                </div>
+                
+                ${h.photo ? `
+                  <div class="my-2 cursor-pointer group" onclick="openImageLightbox('${h.photo}', '${h.title} 실시간 현장 흔적')">
+                    <div class="relative overflow-hidden rounded border border-amber-400 bg-black/10">
+                      <img src="${h.photo}" alt="도주 흔적 현장 사진" class="w-full max-h-56 object-cover group-hover:scale-105 transition duration-300" />
+                      <span class="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                        🔍 터치하여 확대
+                      </span>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <p class="text-xs text-stone-900 font-medium leading-relaxed bg-white/60 p-2 rounded border border-amber-200">
+                  "${h.text}"
+                </p>
+              </div>
+            `;
+          } else {
+            html += `
+              <div class="border rounded-lg p-2.5 bg-stone-200/80 border-stone-300 opacity-70 relative overflow-hidden text-xs">
+                <div class="flex justify-between items-center font-bold mb-1">
+                  <span class="text-stone-700">📍 ${h.title} </span>
+                  <span class="text-[10px] text-stone-500">이동 완료</span>
+                </div>
+                ${h.photo ? `
+                  <div class="mb-1.5 cursor-pointer" onclick="openImageLightbox('${h.photo}', '${h.title} 흔적')">
+                    <img src="${h.photo}" alt="과거 흔적" class="w-full h-20 object-cover rounded opacity-80" />
+                  </div>
+                ` : ''}
+                <p class="text-stone-500 line-through text-[11px]">"${h.text}"</p>
+              </div>
+            `;
+          }
+        });
+
+        hintsContainer.innerHTML = html;
+      }
+    }
+
+    function toggleCard(cardId, contentId, lockedId, badgeId, isOpen, openText, openClass) {
+      const content = document.getElementById(contentId);
+      const locked = document.getElementById(lockedId);
+      const badge = document.getElementById(badgeId);
+
+      if (isOpen) {
+        content.classList.remove("hidden");
+        locked.classList.add("hidden");
+        badge.innerText = openText;
+        badge.className = `text-xs px-2 py-0.5 rounded font-bold ${openClass}`;
+      } else {
+        content.classList.add("hidden");
+        locked.classList.remove("hidden");
+        badge.innerText = "봉인됨";
+        badge.className = "text-xs px-2 py-0.5 rounded font-bold bg-stone-200 text-stone-600";
+      }
+    }
+
+    // ==========================================
+    // 5. 관제탑(운영본부) 렌더링
+    // ==========================================
+    function renderAdminView() {
+      updateWinnerMemberDropdown();
+      renderTeamRosterAdmin();
+      // 1) 추적대별 개별 단계 원격 제어 리스트
+      const teamStagesList = document.getElementById("adminTeamStagesControlList");
+      if (teamStagesList) {
+        teamStagesList.innerHTML = Object.keys(teamMembers).map(key => {
+          const t = teamMembers[key];
+          const st = gameState.teams[key] || { stage1_open: false, stage2_open: false, stage3_open: false };
+          const shortName = t.name.split(" ")[0];
+          const colorCode = teamColorCodes[key];
+
+          return `
+            <div class="p-2.5 rounded-lg bg-stone-900 border border-stone-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full border border-stone-500" style="background-color: ${colorCode};"></span>
+                <span class="text-xs font-bold text-stone-200">${shortName}</span>
+                <span class="text-[10px] text-stone-400">(${getRoster(key).length}인)</span>
+              </div>
+              <div class="grid grid-cols-3 gap-1.5 text-[11px]">
+                <button onclick="toggleTeamStageOpen('${key}', 1)" class="px-2 py-1 rounded font-bold transition border ${st.stage1_open ? 'bg-amber-700 text-white border-amber-500 shadow-sm' : 'bg-stone-800 text-stone-400 border-stone-700 hover:bg-stone-700'}">
+                  1단계 ${st.stage1_open ? '개방' : '봉인'}
+                </button>
+                <button onclick="toggleTeamStageOpen('${key}', 2)" class="px-2 py-1 rounded font-bold transition border ${st.stage2_open ? 'bg-amber-700 text-white border-amber-500 shadow-sm' : 'bg-stone-800 text-stone-400 border-stone-700 hover:bg-stone-700'}">
+                  2단계 ${st.stage2_open ? '개방' : '봉인'}
+                </button>
+                <button onclick="toggleTeamStageOpen('${key}', 3)" class="px-2 py-1 rounded font-bold transition border ${st.stage3_open ? 'bg-emerald-700 text-white border-emerald-500 shadow-sm' : 'bg-stone-800 text-stone-400 border-stone-700 hover:bg-stone-700'}">
+                  3단계 ${st.stage3_open ? '개방' : '봉인'}
+                </button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      // 2) 순차 힌트 & 실시간 카메라 사진 제어 카드 목록
+      const hintsList = document.getElementById("adminHintsControlList");
+      const hints = gameState.hints;
+      
+      hintsList.innerHTML = [1, 2, 3, 4].map(id => {
+        const h = hints[id];
+        return `
+          <div class="p-3 rounded-lg border ${h.open ? 'bg-stone-900 border-amber-600' : 'bg-stone-800/80 border-stone-700'} space-y-2.5">
+            <div class="flex justify-between items-center">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-bold ${h.open ? 'text-amber-300' : 'text-stone-400'}">
+                  제${id}차 흔적 (${h.time})
+                </span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded ${h.open ? 'bg-emerald-800 text-emerald-100 font-bold' : 'bg-stone-700 text-stone-400'}">
+                  ${h.open ? '타전 중' : '봉인'}
+                </span>
+              </div>
+              <button onclick="toggleHintRelease(${id})" class="px-2.5 py-1 rounded text-xs font-bold transition ${h.open ? 'bg-red-800 hover:bg-red-700 text-white' : 'bg-amber-700 hover:bg-amber-600 text-amber-100'}">
+                ${h.open ? '타전 회수' : '즉시 타전(공개)'}
+              </button>
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+              <input type="text" id="adminHintTextInput_${id}" value="${h.text}" 
+                     placeholder="대사 입력" onchange="updateHintText(${id}, this.value)"
+                     class="w-full bg-stone-950 border border-stone-700 text-xs px-2.5 py-1.5 rounded text-stone-200 focus:outline-none focus:border-amber-600" />
+            </div>
+
+            <!-- 사진 첨부/촬영 영역 -->
+            <div class="flex items-center justify-between pt-1 border-t border-stone-700/60 text-xs">
+              <div class="flex items-center gap-2">
+                <label class="cursor-pointer bg-stone-700 hover:bg-stone-600 text-amber-200 px-2.5 py-1 rounded text-[11px] font-bold transition flex items-center gap-1 border border-stone-600">
+                  <span>📸</span> <span>현장 사진 촬영/첨부</span>
+                  <input type="file" accept="image/*" capture="environment" class="hidden" onchange="handleHintPhotoUpload(${id}, this)" />
+                </label>
+                ${h.photo ? `
+                  <button onclick="removeHintPhoto(${id})" class="text-[11px] text-red-400 hover:text-red-300 underline">
+                    사진 삭제
+                  </button>
+                ` : ''}
+              </div>
+              ${h.photo ? `
+                <div class="flex items-center gap-1.5 cursor-pointer" onclick="openImageLightbox('${h.photo}', '제${id}차 흔적')">
+                  <img src="${h.photo}" class="w-8 h-8 object-cover rounded border border-amber-500 shadow-sm" />
+                  <span class="text-[10px] text-amber-400">사진 등록됨</span>
+                </div>
+              ` : `
+                <span class="text-[10px] text-stone-500">사진 없음</span>
+              `}
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      // 3) 팀 현황 테이블
+      const tbody = document.getElementById("adminTeamStatusTable");
+      tbody.innerHTML = "";
+      Object.keys(teamMembers).forEach(key => {
+        const t = teamMembers[key];
+        const st = gameState.teams[key] || { stage1: false, badge: false, arrested: false, photo: false };
+        const isTeamAllDone = !!(st.stage1 && st.badge && st.arrested && st.photo);
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-stone-800/50";
+        tr.innerHTML = `
+          <td class="py-2.5 font-bold">${t.name.split(" ")[0]}</td>
+          <td>
+            <button onclick="toggleTeamStage1('${key}')" class="px-2 py-0.5 rounded text-[11px] transition ${st.stage1 ? 'bg-emerald-800 text-emerald-100 font-bold' : 'bg-stone-700 text-stone-400'}">
+              ${st.stage1 ? '완수' : '진행중'}
+            </button>
+          </td>
+          <td>
+            <button onclick="toggleTeamBadge('${key}')" class="px-2 py-0.5 rounded text-[11px] transition ${st.badge ? 'bg-emerald-800 text-emerald-100 font-bold' : 'bg-stone-700 text-stone-400'}">
+              ${st.badge ? '수령' : '미수령'}
+            </button>
+          </td>
+          <td>
+            <button onclick="toggleTeamArrest('${key}')" class="px-2 py-0.5 rounded text-[11px] transition ${st.arrested ? 'bg-red-700 text-white font-bold shadow' : 'bg-stone-700 text-stone-400'}">
+              ${st.arrested ? '검거완료' : '추적중'}
+            </button>
+          </td>
+          <td>
+            <button onclick="toggleTeamPhoto('${key}')" class="px-2 py-0.5 rounded text-[11px] transition ${st.photo ? 'bg-amber-800 text-amber-100 font-bold' : 'bg-stone-700 text-stone-400'}">
+              ${st.photo ? '완료' : '미완료'}
+            </button>
+          </td>
+          <td>
+            <button onclick="toggleTeamAllComplete('${key}')" class="px-2 py-0.5 rounded text-[11px] font-bold transition ${isTeamAllDone ? 'bg-emerald-600 text-white' : 'bg-stone-700 text-amber-300 hover:bg-stone-600'}">
+              ${isTeamAllDone ? '전체해제' : '⚡일괄완료'}
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // 4) 1·2등 수령자 현황 및 리스트 렌더링
+      renderWinnersList();
+    }
+
+    // ==========================================
+    // 4-1. 추적대원 명단 관리 (관제탑에서 직접 추가/삭제)
+    // ==========================================
+    function renderTeamRosterAdmin() {
+      const container = document.getElementById("adminRosterControlList");
+      if (!container) return;
+
+      container.innerHTML = Object.keys(teamMembers).map(key => {
+        const t = teamMembers[key];
+        const roster = getRoster(key);
+        const colorCode = teamColorCodes[key];
+
+        const memberChips = roster.map(name => `
+          <span class="inline-flex items-center gap-1 bg-stone-950 border border-stone-700 rounded-full pl-2.5 pr-1 py-0.5 text-[11px] text-stone-200">
+            ${name}
+            <button onclick="removeTeamMember('${key}', '${name.replace(/'/g, "\\'")}')"
+                    class="w-4 h-4 flex items-center justify-center rounded-full bg-stone-700 hover:bg-red-700 text-stone-300 hover:text-white text-[10px] transition">✕</button>
+          </span>
+        `).join("");
+
+        return `
+          <div class="p-2.5 rounded-lg bg-stone-900 border border-stone-700/80 space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full border border-stone-500" style="background-color: ${colorCode};"></span>
+              <span class="text-xs font-bold text-stone-200">${t.name} (${roster.length}인)</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              ${memberChips || '<span class="text-[11px] text-stone-500">등록된 대원이 없소</span>'}
+            </div>
+            <div class="flex gap-1.5">
+              <input type="text" id="rosterAddInput_${key}" placeholder="추가할 대원 이름"
+                     onkeydown="if(event.key==='Enter'){addTeamMember('${key}')}"
+                     class="flex-1 bg-stone-950 border border-stone-700 text-xs px-2.5 py-1.5 rounded text-stone-200 focus:outline-none focus:border-amber-600" />
+              <button onclick="addTeamMember('${key}')" class="px-3 py-1.5 rounded bg-amber-700 hover:bg-amber-600 text-white text-xs font-bold transition">
+                추가
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function addTeamMember(teamKey) {
+      const input = document.getElementById(`rosterAddInput_${teamKey}`);
+      if (!input) return;
+      const name = input.value.trim();
+      if (!name) return;
+
+      if (!gameState.roster) gameState.roster = JSON.parse(JSON.stringify(teamRoster));
+      if (!Array.isArray(gameState.roster[teamKey])) gameState.roster[teamKey] = [...(teamRoster[teamKey] || [])];
+
+      if (gameState.roster[teamKey].includes(name)) {
+        input.value = "";
+        return;
+      }
+
+      gameState.roster[teamKey].push(name);
+      input.value = "";
+      saveState();
+    }
+
+    function removeTeamMember(teamKey, name) {
+      if (!gameState.roster || !Array.isArray(gameState.roster[teamKey])) return;
+      gameState.roster[teamKey] = gameState.roster[teamKey].filter(n => n !== name);
+      saveState();
+    }
+
+    // ==========================================
+    // 5-1. 비밀 보따리 1·2등 수령자 관리 함수군
+    // ==========================================
+    function updateWinnerMemberDropdown() {
+      const teamSelect = document.getElementById("winnerTeamSelect");
+      const memberSelect = document.getElementById("winnerMemberSelect");
+      if (!teamSelect || !memberSelect) return;
+
+      const teamKey = teamSelect.value;
+      const roster = getRoster(teamKey);
+      const winners = Array.isArray(gameState.winners) ? gameState.winners : [];
+
+      const currentSelected = memberSelect.value;
+
+      memberSelect.innerHTML = roster.map(name => {
+        const alreadyWon = winners.find(w => w.name === name);
+        if (alreadyWon) {
+          const badge = alreadyWon.prize === 1 ? "[1등수령]" : "[2등수령]";
+          return `<option value="${name}" disabled class="text-stone-500">${name} ${badge}</option>`;
+        }
+        return `<option value="${name}">${name}</option>`;
+      }).join("");
+
+      // 이전에 선택된 사람이 유효하면 유지, 아니면 첫 번째 선택 가능한 대원 선택
+      if (currentSelected && roster.includes(currentSelected)) {
+        memberSelect.value = currentSelected;
+      }
+    }
+
+    function renderWinnersList() {
+      const winners = Array.isArray(gameState.winners) ? gameState.winners : [];
+      const p1Winners = winners.filter(w => w.prize === 1);
+      const p2Winners = winners.filter(w => w.prize === 2);
+
+      const p1El = document.getElementById("prize1Count");
+      const p2El = document.getElementById("prize2Count");
+      if (p1El) p1El.innerText = p1Winners.length;
+      if (p2El) p2El.innerText = p2Winners.length;
+
+      const container = document.getElementById("winnersListContainer");
+      if (!container) return;
+
+      if (winners.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-2 text-stone-500 text-[11px] bg-stone-900/50 rounded border border-dashed border-stone-800">
+            아직 등록된 1·2등 수령자가 없소.
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = winners.map(w => {
+        const teamCol = teamColorCodes[w.team] || "#78716c";
+        const teamName = teamMembers[w.team] ? teamMembers[w.team].name.split(" ")[0] : w.team;
+        const prizeLabel = (w.prize === 1) 
+          ? '<span class="text-amber-300 font-bold bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-700/60">🥇 1등: 5만 신세계</span>' 
+          : '<span class="text-orange-300 font-bold bg-orange-950/80 px-1.5 py-0.5 rounded border border-orange-700/60">🥈 2등: 3만 배민</span>';
+
+        return `
+          <div class="flex items-center justify-between p-1.5 rounded bg-stone-900 border border-stone-700/80 text-xs">
+            <div class="flex items-center gap-2">
+              ${prizeLabel}
+              <span class="font-bold text-stone-100">${w.name}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded text-white" style="background-color: ${teamCol};">
+                ${teamName}
+              </span>
+              <span class="text-[10px] text-stone-500 font-mono">${w.time || ''}</span>
+            </div>
+            <button onclick="removeWinner('${w.id}')" class="text-[11px] text-red-400 hover:text-red-300 px-1.5 py-0.5 rounded hover:bg-stone-800 transition">
+              삭제
+            </button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function registerWinner() {
+      const prizeVal = parseInt(document.getElementById("winnerPrizeSelect").value, 10);
+      const teamVal = document.getElementById("winnerTeamSelect").value;
+      const memberSelect = document.getElementById("winnerMemberSelect");
+      const feedback = document.getElementById("winnerFormFeedback");
+
+      if (feedback) feedback.classList.add("hidden");
+
+      const name = memberSelect ? memberSelect.value : "";
+
+      if (!name) {
+        if (feedback) {
+          feedback.innerText = "수령할 대원을 선택하시오!";
+          feedback.classList.remove("hidden");
+        }
+        return;
+      }
+
+      if (!Array.isArray(gameState.winners)) gameState.winners = [];
+
+      // 이미 수령했는지 확인
+      const alreadyWon = gameState.winners.find(w => w.name === name);
+      if (alreadyWon) {
+        if (feedback) {
+          feedback.innerText = `⚠️ ${name} 대원은 이미 ${alreadyWon.prize}등 상품을 수령하였소!`;
+          feedback.classList.remove("hidden");
+        }
+        return;
+      }
+
+      // 정원 초과 검사 (1등 4명, 2등 5명)
+      const currentCount = gameState.winners.filter(w => w.prize === prizeVal).length;
+      const maxLimit = (prizeVal === 1) ? 4 : 5;
+      if (currentCount >= maxLimit) {
+        if (feedback) {
+          const prizeName = (prizeVal === 1) ? "1등 (선비의 품위: 4명)" : "2등 (선비의 활력: 5명)";
+          feedback.innerText = `⚠️ ${prizeName}은 이미 모든 수량이 소진되었소!`;
+          feedback.classList.remove("hidden");
+        }
+        return;
+      }
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      const newWinner = {
+        id: "win_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        prize: prizeVal,
+        name: name,
+        team: teamVal,
+        time: timeStr
+      };
+
+      gameState.winners.push(newWinner);
+      saveState();
+      updateWinnerMemberDropdown();
+      renderWinnersList();
+    }
+
+    function removeWinner(winnerId) {
+      if (!Array.isArray(gameState.winners)) return;
+      gameState.winners = gameState.winners.filter(w => w.id !== winnerId);
+      saveState();
+      updateWinnerMemberDropdown();
+    }
+
+    // ==========================================
+    // 6. 현장 사진 촬영 및 자동 압축 전송
+    // ==========================================
+    function handleHintPhotoUpload(hintId, inputEl) {
+      if (!inputEl.files || !inputEl.files[0]) return;
+      const file = inputEl.files[0];
+      
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement("canvas");
+          const maxDim = 720;
+          let w = img.width;
+          let h = img.height;
+
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.65);
+          gameState.hints[hintId].photo = compressedBase64;
+          saveState();
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function removeHintPhoto(hintId) {
+      gameState.hints[hintId].photo = null;
+      saveState();
+    }
+
+    // 아코디언 토글
+    function toggleAccordion(stageNum) {
+      const myTeam = gameState.teams[currentTeamKey] || { stage1: false, badge: false, stage1_open: false, stage2_open: false };
+      const isS1Open = !!myTeam.stage1_open;
+      const isS2Open = !!myTeam.stage2_open;
+
+      if (stageNum === 1 && !isS1Open) return;
+      if (stageNum === 2 && !isS2Open) return;
+
+      const isDone = (stageNum === 1) ? !!myTeam.stage1 : !!myTeam.badge;
+      
+      if (isDone) {
+        userAccordionOverride[stageNum] = (userAccordionOverride[stageNum] !== true);
+      } else {
+        let currentlyExpanded = (userAccordionOverride[stageNum] !== false);
+        userAccordionOverride[stageNum] = !currentlyExpanded;
+      }
+
+      renderParticipantView();
+    }
+
+    function completeStage1() {
+      if (!gameState.teams[currentTeamKey]) return;
+      gameState.teams[currentTeamKey].stage1 = true;
+      userAccordionOverride[1] = false;
+      saveState();
+    }
+
+    function toggleTeamStageOpen(teamKey, stageNum) {
+      if (!gameState.teams[teamKey]) return;
+      const field = `stage${stageNum}_open`;
+      const nextVal = !gameState.teams[teamKey][field];
+      gameState.teams[teamKey][field] = nextVal;
+      
+      if (!nextVal) {
+        if (stageNum === 1) userAccordionOverride[1] = null;
+        if (stageNum === 2) userAccordionOverride[2] = null;
+      }
+      saveState();
+    }
+
+    function bulkToggleStage(stageNum) {
+      const field = `stage${stageNum}_open`;
+      const teams = gameState.teams;
+      const allOpen = Object.keys(teamMembers).every(k => !!teams[k][field]);
+      const targetVal = !allOpen;
+
+      Object.keys(teamMembers).forEach(k => {
+        if (!teams[k]) return;
+        teams[k][field] = targetVal;
+        if (!targetVal) {
+          if (stageNum === 1) userAccordionOverride[1] = null;
+          if (stageNum === 2) userAccordionOverride[2] = null;
+        }
+      });
+      gameState.stages[stageNum] = targetVal;
+      saveState();
+    }
+
+    function toggleTeamStage1(teamKey) {
+      gameState.teams[teamKey].stage1 = !gameState.teams[teamKey].stage1;
+      saveState();
+    }
+
+    function toggleTeamBadge(teamKey) {
+      gameState.teams[teamKey].badge = !gameState.teams[teamKey].badge;
+      if (gameState.teams[teamKey].badge) {
+        userAccordionOverride[2] = false;
+      }
+      saveState();
+    }
+
+    function toggleTeamArrest(teamKey) {
+      gameState.teams[teamKey].arrested = !gameState.teams[teamKey].arrested;
+      saveState();
+    }
+
+    function toggleTeamPhoto(teamKey) {
+      gameState.teams[teamKey].photo = !gameState.teams[teamKey].photo;
+      saveState();
+    }
+
+    // 특정 조 원클릭 일괄 완료/해제 토글 함수
+    function toggleTeamAllComplete(teamKey) {
+      if (!gameState.teams[teamKey]) return;
+      const st = gameState.teams[teamKey];
+      const isCurrentlyAll = !!(st.stage1 && st.badge && st.arrested && st.photo);
+      const nextVal = !isCurrentlyAll;
+      
+      st.stage1 = nextVal;
+      st.badge = nextVal;
+      st.arrested = nextVal;
+      st.photo = nextVal;
+
+      if (nextVal) {
+        st.stage1_open = true;
+        st.stage2_open = true;
+        st.stage3_open = true;
+      }
+      saveState();
+    }
+
+    function updateHintText(hintId, newText) {
+      gameState.hints[hintId].text = newText;
+      saveState();
+    }
+
+    function toggleHintRelease(hintId) {
+      gameState.hints[hintId].open = !gameState.hints[hintId].open;
+      saveState();
+    }
+
+    function openImageLightbox(src, caption) {
+      const modal = document.getElementById("imageLightboxModal");
+      const img = document.getElementById("lightboxImg");
+      const cap = document.getElementById("lightboxCaption");
+      img.src = src;
+      cap.innerText = caption || "도주 흔적 사진";
+      modal.classList.remove("hidden");
+    }
+
+    function closeImageLightbox() {
+      document.getElementById("imageLightboxModal").classList.add("hidden");
+    }
+
+    // ==========================================
+    // 7. 긴급 어명 배너 & 팀 조작
+    // ==========================================
+    function renderUrgentBanner() {
+      const banner = document.getElementById("urgentBanner");
+      const text = document.getElementById("urgentText");
+      const dismissedTs = parseInt(localStorage.getItem("dismissedUrgentTs") || "0", 10);
+
+      if (gameState.urgent && gameState.urgent.active) {
+        if (gameState.urgent.timestamp && gameState.urgent.timestamp <= dismissedTs) {
+          banner.classList.add("hidden");
+        } else {
+          banner.classList.remove("hidden");
+          text.innerText = gameState.urgent.text;
+        }
+      } else {
+        banner.classList.add("hidden");
+      }
+    }
+
+    function dismissBanner() {
+      if (gameState.urgent && gameState.urgent.timestamp) {
+        localStorage.setItem("dismissedUrgentTs", gameState.urgent.timestamp.toString());
+      }
+      document.getElementById("urgentBanner").classList.add("hidden");
+    }
+
+    function clearUrgentMsg() {
+      gameState.urgent = { active: false, text: "", timestamp: Date.now() };
+      saveState();
+    }
+
+    function broadcastUrgentMsg() {
+      const txt = document.getElementById("adminUrgentInput").value.trim();
+      if (!txt) return;
+      gameState.urgent = { active: true, text: `🚨 어명: ${txt}`, timestamp: Date.now() };
+      saveState();
+      document.getElementById("adminUrgentInput").value = "";
+    }
+
+    function quickBroadcastDDay() {
+      gameState.urgent = { 
+        active: true, 
+        text: "🚨 [마감 임박] 상시미션 사진 인증이 곧 마감되오! 17:30까지 오픈채팅에 올리지 못한 조는 파전이 없소!",
+        timestamp: Date.now()
+      };
+      saveState();
+    }
+
+    function selectTeam(key) {
+      currentTeamKey = key;
+      localStorage.setItem("myTeamKey", key);
+      hasTriggeredAllCompleteConfetti = false;
+      if (gameState.teams[key]) {
+        lastArrestState = gameState.teams[key].arrested;
+      }
+      renderParticipantView();
+    }
+
+    function pickRandomKeyword() {
+      const rand = keywords[Math.floor(Math.random() * keywords.length)];
+      document.getElementById("keywordCategory").innerText = `[${rand.cat}]`;
+      document.getElementById("keywordDisplay").innerText = rand.word;
+    }
+
+    // ==========================================
+    // 8. 운영본부 인증 및 모달 제어
+    // ==========================================
+    function openAdminModal() {
+      document.getElementById("passwordFeedback").classList.add("hidden");
+      document.getElementById("passwordModal").classList.remove("hidden");
+      const input = document.getElementById("adminPasswordInput");
+      input.value = "";
+      setTimeout(() => input.focus(), 100);
+    }
+
+    function closeAdminModal() {
+      document.getElementById("passwordModal").classList.add("hidden");
+    }
+
+    function handlePasswordKey(event) {
+      if (event.key === "Enter") {
+        verifyAdminPassword();
+      }
+    }
+
+    function verifyAdminPassword() {
+      const input = document.getElementById("adminPasswordInput");
+      const pwd = input.value;
+      const feedback = document.getElementById("passwordFeedback");
+      if (!pwd) return;
+
+      if (checkPasscodeAuth(pwd)) {
+        closeAdminModal();
+        document.getElementById("participantView").classList.add("hidden");
+        document.getElementById("adminView").classList.remove("hidden");
+        document.getElementById("roleLabel").innerText = "포도청 중앙관제탑";
+        document.getElementById("toggleModeBtn").classList.add("hidden");
+        feedback.classList.add("hidden");
+      } else {
+        feedback.classList.remove("hidden");
+        input.select();
+      }
+    }
+
+    function exitAdminView() {
+      document.getElementById("adminView").classList.add("hidden");
+      document.getElementById("participantView").classList.remove("hidden");
+      document.getElementById("roleLabel").innerText = "참가자 모드";
+      document.getElementById("toggleModeBtn").classList.remove("hidden");
+    }
+
+    window.onload = function() {
+      initConfettiCanvas();
+      initSync();
+    };
+  </script>
+</body>
+</html>
