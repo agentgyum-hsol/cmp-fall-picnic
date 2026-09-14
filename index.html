@@ -164,7 +164,7 @@
               <span id="missionTitle" class="text-xs font-bold tracking-wider text-amber-400">상시 미션: 우리의 색을 찾아서</span>
               <span id="missionBadge" class="text-[11px] px-2 py-0.5 rounded bg-red-900/80 text-red-200 font-mono">D-DAY</span>
             </div>
-            <p id="missionDesc" class="text-xs text-stone-300 mb-2.5 leading-relaxed">우리 조 상징색 사물/배경과 함께 단체 인증샷 2장을 오픈채팅에 투척하라!</p>
+            <p id="missionDesc" class="text-xs text-stone-300 mb-2.5 leading-relaxed">아래 버튼을 눌러 우리 추적대의 상징색을 포함한 사진을 찍어 오픈채팅방에 올려라!</p>
             
             <div class="flex flex-col gap-2">
               <div id="missionSubBox" class="text-[11px] bg-stone-800/90 p-2 rounded text-stone-300 flex justify-between items-center">
@@ -1862,9 +1862,38 @@
       document.getElementById("toggleModeBtn").classList.remove("hidden");
     }
 
+    // ==========================================
+    // 9. 상시 미션 마감 카운트다운 (2026-09-15 17:30 KST)
+    // ==========================================
+    const MISSION_DEADLINE = new Date("2026-09-15T17:30:00+09:00").getTime();
+
+    function updateMissionCountdown() {
+      const badge = document.getElementById("missionBadge");
+      if (!badge) return;
+
+      const diff = MISSION_DEADLINE - Date.now();
+      if (diff <= 0) {
+        badge.innerText = "⏰ 마감";
+        return;
+      }
+
+      const totalSec = Math.floor(diff / 1000);
+      const days = Math.floor(totalSec / 86400);
+      const hours = Math.floor((totalSec % 86400) / 3600);
+      const minutes = Math.floor((totalSec % 3600) / 60);
+      const seconds = totalSec % 60;
+      const pad = (n) => String(n).padStart(2, "0");
+
+      badge.innerText = days > 0
+        ? `D-${days} ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+        : `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+    }
+
     window.onload = function() {
       initConfettiCanvas();
       initSync();
+      updateMissionCountdown();
+      setInterval(updateMissionCountdown, 1000);
     };
   </script>
 </body>
