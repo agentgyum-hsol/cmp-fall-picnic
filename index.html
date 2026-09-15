@@ -1305,8 +1305,12 @@
             <div class="flex items-center justify-between pt-1 border-t border-stone-700/60 text-xs">
               <div class="flex items-center gap-2">
                 <label class="cursor-pointer bg-stone-700 hover:bg-stone-600 text-amber-200 px-2.5 py-1 rounded text-[11px] font-bold transition flex items-center gap-1 border border-stone-600">
-                  <span>📸</span> <span>현장 사진 촬영/첨부</span>
+                  <span>📷</span> <span>촬영</span>
                   <input type="file" accept="image/*" capture="environment" class="hidden" onchange="handleHintPhotoUpload(${id}, this)" />
+                </label>
+                <label class="cursor-pointer bg-stone-700 hover:bg-stone-600 text-amber-200 px-2.5 py-1 rounded text-[11px] font-bold transition flex items-center gap-1 border border-stone-600">
+                  <span>🖼️</span> <span>업로드</span>
+                  <input type="file" accept="image/*" class="hidden" onchange="handleHintPhotoUpload(${id}, this)" />
                 </label>
                 ${h.photo ? `
                   <button onclick="removeHintPhoto(${id})" class="text-[11px] text-red-400 hover:text-red-300 underline">
