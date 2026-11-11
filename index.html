@@ -279,6 +279,25 @@
         </div>
       </div>
 
+      <!-- ★ 익명 게시판 (신문고) ★ -->
+      <section id="boardSection" class="bg-white/80 p-3.5 rounded-lg border border-amber-900/20 shadow-sm space-y-3">
+        <div>
+          <h2 class="font-chosun text-base font-bold text-stone-900">🥁 익명 신문고</h2>
+          <p class="text-[11px] text-stone-500 leading-snug">다른 대원에게는 <strong>"익명"</strong>으로만 보입니다. 작성자 정보는 암호화되어 운영진만 확인할 수 있습니다.</p>
+        </div>
+        <div class="space-y-2">
+          <input type="text" id="boardNameInput" maxlength="20" placeholder="이름 (운영진에게만 공개)"
+                 class="w-full bg-white border border-stone-300 text-xs px-2.5 py-2 rounded focus:outline-none focus:border-amber-700" />
+          <textarea id="boardContentInput" maxlength="300" rows="3" placeholder="하고 싶은 말을 적어주세요 (최대 300자)"
+                 class="w-full bg-white border border-stone-300 text-xs px-2.5 py-2 rounded focus:outline-none focus:border-amber-700"></textarea>
+          <div class="flex items-center justify-between">
+            <span id="boardFeedback" class="text-[11px] text-red-600"></span>
+            <button id="boardSubmitBtn" onclick="submitBoardPost()" class="bg-amber-800 hover:bg-amber-700 active:scale-95 text-white text-xs px-3.5 py-1.5 rounded font-bold transition">등록</button>
+          </div>
+        </div>
+        <div id="boardList" class="space-y-2"></div>
+      </section>
+
     </main>
 
     <!-- ============================================== -->
@@ -469,6 +488,21 @@
           </div>
         </div>
 
+      </div>
+
+          <!-- 7. 익명 신문고 관리 (작성자 확인) -->
+      <div class="bg-stone-800 p-3.5 rounded-lg border border-stone-700 space-y-2.5">
+        <h3 class="text-xs font-bold text-amber-300">🥁 익명 신문고 (작성자 확인)</h3>
+        <div id="boardKeyBox" class="space-y-1.5">
+          <p class="text-[10px] text-stone-400 leading-tight">작성자를 보려면 관리자 개인키(board-private-key.json 내용)를 붙여넣으세요. 이 브라우저 탭을 닫으면 사라집니다.</p>
+          <textarea id="boardPrivateKeyInput" rows="2" placeholder='{"kty":"RSA", ...}'
+                    class="w-full bg-stone-900 border border-stone-700 text-[10px] px-2 py-1.5 rounded text-stone-100 focus:outline-none focus:border-amber-600"></textarea>
+          <div class="flex items-center gap-2">
+            <button onclick="loadBoardPrivateKey()" class="bg-amber-800 hover:bg-amber-700 text-white text-[11px] px-3 py-1 rounded font-bold">작성자 확인 활성화</button>
+            <span id="boardKeyFeedback" class="text-[11px] text-red-400"></span>
+          </div>
+        </div>
+        <div id="adminBoardList" class="space-y-2"></div>
       </div>
 
     </section>
@@ -1893,9 +1927,199 @@
         : `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
     }
 
+    // ==========================================
+    // 10. 익명 신문고 (작성자는 관리자 공개키로 암호화하여 저장)
+    // ==========================================
+    // 공개키: 공개되어도 안전함. 개인키는 운영진만 보관 (tools/gen-board-keys.js 로 재발급)
+    const BOARD_PUBLIC_KEY = {"key_ops":["encrypt"],"ext":true,"alg":"RSA-OAEP-256","kty":"RSA","n":"tKANp4yAU_5gRfo80ubm6Qq4W4ItQFXjEeujM0VnvdsNqHmLTjnEU97Mgh7asdbJnhNnXiWGmz-MmyVUWLrqJ6wKRoZmsiI_JkQBuOUvVtagN3GBGD1-y5ftb-gZQYfz_8Eicvn8o-Xy5sRse-6WJFqAA7aIo8wNIsindcixgrwE45Ovtq2qcbMJTP62HyKzJCI5p65Zy1So2JuBXlt7B_UbdAYWS-ID-dLESECI8Bwe77IlL-zQOdZsP60-Hrmfw4pPDhDsxvTN5yC6P5GPH5uTKQtDLCnKBpQjpXgpw_NP1M-RdIMiWGDoqD4XGcJ-yHMZILM6u4ZTWyAjYaYChQ","e":"AQAB"};
+
+    let boardPosts = {};
+    let boardPrivateKey = null;
+    const boardDecryptCache = {};
+
+    function esc(str) {
+      return String(str).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    const b64 = {
+      enc: buf => btoa(String.fromCharCode(...new Uint8Array(buf))),
+      dec: str => Uint8Array.from(atob(str), c => c.charCodeAt(0))
+    };
+
+    function getDeviceId() {
+      let id = localStorage.getItem("boardDeviceId");
+      if (!id) {
+        id = Array.from(crypto.getRandomValues(new Uint8Array(6))).map(b => b.toString(16).padStart(2, "0")).join("");
+        localStorage.setItem("boardDeviceId", id);
+      }
+      return id;
+    }
+
+    async function encryptAuthor(info) {
+      const key = await crypto.subtle.importKey("jwk", BOARD_PUBLIC_KEY, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
+      const data = new TextEncoder().encode(JSON.stringify(info));
+      return b64.enc(await crypto.subtle.encrypt({ name: "RSA-OAEP" }, key, data));
+    }
+
+    async function decryptAuthor(cipher) {
+      const buf = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, boardPrivateKey, b64.dec(cipher));
+      return JSON.parse(new TextDecoder().decode(buf));
+    }
+
+    function initBoardSync() {
+      if (isFirebaseActive && db) {
+        db.ref("cmp_board/posts").on("value", snap => {
+          boardPosts = snap.val() || {};
+          renderBoard();
+        }, err => console.warn("Board read error:", err));
+      } else {
+        const load = () => {
+          try { boardPosts = JSON.parse(localStorage.getItem("cmp_board_fallback") || "{}"); } catch (e) { boardPosts = {}; }
+          renderBoard();
+        };
+        load();
+        window.addEventListener("storage", e => { if (e.key === "cmp_board_fallback") load(); });
+      }
+    }
+
+    async function submitBoardPost() {
+      const nameEl = document.getElementById("boardNameInput");
+      const contentEl = document.getElementById("boardContentInput");
+      const fb = document.getElementById("boardFeedback");
+      const btn = document.getElementById("boardSubmitBtn");
+      const name = nameEl.value.trim();
+      const content = contentEl.value.trim();
+      fb.innerText = "";
+      if (!name) { fb.innerText = "이름을 입력해주세요."; return; }
+      if (!content) { fb.innerText = "내용을 입력해주세요."; return; }
+
+      btn.disabled = true;
+      try {
+        const author = await encryptAuthor({ n: name, t: currentTeamKey, d: getDeviceId() });
+        const post = { content, author, ts: Date.now() };
+        if (isFirebaseActive && db) {
+          await db.ref("cmp_board/posts").push(post);
+        } else {
+          boardPosts["local_" + post.ts] = post;
+          localStorage.setItem("cmp_board_fallback", JSON.stringify(boardPosts));
+          renderBoard();
+        }
+        contentEl.value = "";
+        localStorage.setItem("boardLastName", name);
+      } catch (e) {
+        console.warn("Board submit error:", e);
+        fb.innerText = "등록에 실패했어요. 잠시 후 다시 시도해주세요.";
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function formatBoardTime(ts) {
+      const d = new Date(ts);
+      const p = n => String(n).padStart(2, "0");
+      return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    function sortedBoardEntries() {
+      return Object.entries(boardPosts).sort((a, b) => (b[1].ts || 0) - (a[1].ts || 0));
+    }
+
+    function renderBoard() {
+      const list = document.getElementById("boardList");
+      if (list) {
+        const entries = sortedBoardEntries();
+        list.innerHTML = entries.length
+          ? entries.map(([id, p]) => `
+            <div class="bg-amber-50 border border-amber-200/70 rounded p-2.5">
+              <div class="flex justify-between text-[10px] text-stone-500 mb-1"><span class="font-bold">익명</span><span>${formatBoardTime(p.ts)}</span></div>
+              <p class="text-xs text-stone-800 whitespace-pre-wrap break-words">${esc(p.content)}</p>
+            </div>`).join("")
+          : `<p class="text-center text-[11px] text-stone-400 py-3">아직 올라온 글이 없습니다.</p>`;
+      }
+      renderAdminBoard();
+    }
+
+    async function renderAdminBoard() {
+      const list = document.getElementById("adminBoardList");
+      if (!list) return;
+      const entries = sortedBoardEntries();
+      if (!entries.length) {
+        list.innerHTML = `<p class="text-center text-[11px] text-stone-500 py-2">글이 없습니다.</p>`;
+        return;
+      }
+      if (boardPrivateKey) {
+        await Promise.all(entries.map(async ([id, p]) => {
+          if (boardDecryptCache[id] !== undefined) return;
+          try { boardDecryptCache[id] = await decryptAuthor(p.author); }
+          catch (e) { boardDecryptCache[id] = null; }
+        }));
+      }
+      list.innerHTML = entries.map(([id, p]) => {
+        let who = `<span class="text-stone-500">🔒 개인키 필요</span>`;
+        if (boardPrivateKey) {
+          const a = boardDecryptCache[id];
+          const teamName = a && teamMembers[a.t] ? teamMembers[a.t].name : (a ? a.t : "");
+          who = a ? `<span class="text-amber-300 font-bold">${esc(a.n)}</span> <span class="text-stone-400">(${esc(teamName)} · 기기 ${esc(a.d)})</span>`
+                  : `<span class="text-red-400">복호화 실패 (다른 키로 작성됨)</span>`;
+        }
+        return `
+          <div class="bg-stone-900 border border-stone-700 rounded p-2.5">
+            <div class="flex justify-between items-start gap-2 text-[11px] mb-1">
+              <div>${who}</div>
+              <div class="flex items-center gap-2 whitespace-nowrap text-stone-500">
+                <span>${formatBoardTime(p.ts)}</span>
+                <button onclick="deleteBoardPost('${esc(id)}')" class="text-red-400 hover:text-red-300">삭제</button>
+              </div>
+            </div>
+            <p class="text-xs text-stone-200 whitespace-pre-wrap break-words">${esc(p.content)}</p>
+          </div>`;
+      }).join("");
+    }
+
+    async function loadBoardPrivateKey() {
+      const fb = document.getElementById("boardKeyFeedback");
+      fb.innerText = "";
+      try {
+        const jwk = JSON.parse(document.getElementById("boardPrivateKeyInput").value);
+        boardPrivateKey = await crypto.subtle.importKey("jwk", jwk, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["decrypt"]);
+        Object.keys(boardDecryptCache).forEach(k => delete boardDecryptCache[k]);
+        sessionStorage.setItem("boardPrivateKeyJwk", JSON.stringify(jwk));
+        document.getElementById("boardPrivateKeyInput").value = "";
+        document.getElementById("boardKeyBox").classList.add("hidden");
+        renderAdminBoard();
+      } catch (e) {
+        boardPrivateKey = null;
+        fb.innerText = "올바른 개인키가 아닙니다.";
+      }
+    }
+
+    function deleteBoardPost(id) {
+      if (!confirm("이 글을 삭제할까요?")) return;
+      if (isFirebaseActive && db) {
+        db.ref("cmp_board/posts/" + id).remove();
+      } else {
+        delete boardPosts[id];
+        localStorage.setItem("cmp_board_fallback", JSON.stringify(boardPosts));
+        renderBoard();
+      }
+    }
+
+    async function restoreBoardKey() {
+      try {
+        const saved = sessionStorage.getItem("boardPrivateKeyJwk");
+        if (!saved) return;
+        boardPrivateKey = await crypto.subtle.importKey("jwk", JSON.parse(saved), { name: "RSA-OAEP", hash: "SHA-256" }, false, ["decrypt"]);
+        document.getElementById("boardKeyBox").classList.add("hidden");
+        renderAdminBoard();
+      } catch (e) {}
+    }
+
     window.onload = function() {
       initConfettiCanvas();
       initSync();
+      initBoardSync();
+      restoreBoardKey();
+      const lastName = localStorage.getItem("boardLastName");
+      if (lastName) document.getElementById("boardNameInput").value = lastName;
       updateMissionCountdown();
       setInterval(updateMissionCountdown, 1000);
     };
